@@ -1,5 +1,5 @@
 //***************************************************************************
-//* Copyright (c) 2011-2013 Saint-Petersburg Academic University
+//* Copyright (c) 2011-2014 Saint-Petersburg Academic University
 //* All Rights Reserved
 //* See file LICENSE for details.
 //****************************************************************************
@@ -16,6 +16,7 @@
 #include "gap_closer.hpp"
 #include "simplification.hpp"
 #include "mismatch_correction.hpp"
+#include "reference_correction.hpp"
 #include "pair_info_count.hpp"
 #include "repeat_resolving.hpp"
 #include "distance_estimation.hpp"
@@ -28,7 +29,7 @@ void assemble_genome() {
     INFO("SPAdes started");
     INFO("Starting from stage: " << cfg::get().entry_point);
 
-    StageManager SPAdes({ cfg::get().developer_mode,
+    StageManager SPAdes({cfg::get().developer_mode,
                           cfg::get().load_from,
                           cfg::get().output_saves});
 
@@ -39,14 +40,10 @@ void assemble_genome() {
                                             cfg::get().flanking_range,
                                             cfg::get().pos.max_mapping_gap,
                                             cfg::get().pos.max_gap_diff);
-    if (!cfg::get().developer_mode) {
-        conj_gp.edge_pos.Detach();
-        conj_gp.paired_indices.Detach();
-        conj_gp.clustered_indices.Detach();
-        conj_gp.scaffolding_indices.Detach();
-        conj_gp.element_finder.Detach();
-        if (!cfg::get().gap_closer_enable && !cfg::get().rr_enable)
-            conj_gp.kmer_mapper.Detach();
+
+    if (cfg::get().need_mapping) {
+        INFO("Will need read mapping, kmer mapper will be attached");
+        conj_gp.kmer_mapper.Attach();
     }
 
     // Build the pipeline
@@ -60,6 +57,9 @@ void assemble_genome() {
     SPAdes.add(new debruijn_graph::SimplificationCleanup());
     if (cfg::get().correct_mismatches)
         SPAdes.add(new debruijn_graph::MismatchCorrection());
+    //TODO: should add option to enable or disable reference correction here
+    SPAdes.add(new debruijn_graph::ReferenceCorrection());
+    
     if (cfg::get().rr_enable) {
         bool run_pacbio = false;
         for (size_t i = 0; i < cfg::get().ds.reads.lib_count(); ++i) {
@@ -77,6 +77,8 @@ void assemble_genome() {
     } else {
         SPAdes.add(new debruijn_graph::ContigOutput());
     }
+
+
 
     SPAdes.run(conj_gp, cfg::get().entry_point.c_str());
 
