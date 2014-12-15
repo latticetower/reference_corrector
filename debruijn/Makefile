@@ -276,6 +276,21 @@ mismatch_correction.s:
 .PHONY : mismatch_correction.s
 
 # target to build an object file
+reference_correction.o:
+	$(MAKE) -f CMakeFiles/spades.dir/build.make CMakeFiles/spades.dir/reference_correction.o
+.PHONY : reference_correction.o
+
+# target to preprocess a source file
+reference_correction.i:
+	$(MAKE) -f CMakeFiles/spades.dir/build.make CMakeFiles/spades.dir/reference_correction.i
+.PHONY : reference_correction.i
+
+# target to generate assembly for a file
+mismatch_correction.s:
+	$(MAKE) -f CMakeFiles/spades.dir/build.make CMakeFiles/spades.dir/reference_correction.s
+.PHONY : reference_correction.s
+
+# target to build an object file
 pacbio_aligning.o:
 	$(MAKE) -f CMakeFiles/spades.dir/build.make CMakeFiles/spades.dir/pacbio_aligning.o
 .PHONY : pacbio_aligning.o
