@@ -1,6 +1,12 @@
 #pragma once
 
+
+
+#include "graph_pack.hpp"
+
+
 #include "stage.hpp"
+#include "reference_corrector.hpp"
 
 namespace debruijn_graph {
 
