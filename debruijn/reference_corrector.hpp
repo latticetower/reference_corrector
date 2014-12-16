@@ -17,15 +17,51 @@ class ReferenceChecker {
       virtual void Check(MappingPath<EdgeId>& path, size_t i) {}
 };
 
+struct IndelInfo{
+    size_t indel_position, start_pos, end_pos;
+    IndelInfo(size_t const & i, size_t const & s, size_t const & e) : indel_position(i), start_pos(s), end_pos(e) {
+
+    }
+};
+
+//TODO: implement this
 template<class Graph>
 class IndelChecker : public ReferenceChecker<Graph> {
+      typedef typename Graph::EdgeId EdgeId;
+      Graph & g_;
+      vector<IndelInfo> insertions, deletions;//TODO: check types
+      //these two vectors contain positions in reference
   public:
-      IndelChecker() {}
+      IndelChecker(Graph& g): g_(g) {}
 
       void Check(MappingPath<EdgeId>& path, size_t i) {
           INFO("Check in IndelChecker called");
+          EdgeId ei = path[i].first;
+          MappingRange mr = path[i].second;
+
+          int len = (int) (mr.mapped_range.end_pos - mr.mapped_range.start_pos);
+          //TODO: check and add +1 values if needed
+          //check insertion in reference:
+          if (path[i - 1].second.initial_range.end_pos == mr.initial_range.start_pos &&
+              path[i - 1].second.mapped_range.end_pos != mr.mapped_range.start_pos) {
+                //
+                insertions.push_back(IndelInfo(
+                        mr.initial_range.start_pos,
+                        path[i - 1].second.mapped_range.end_pos,
+                        mr.mapped_range.start_pos));
+          }
+          //check deletions in reference:
+          if (path[i - 1].second.initial_range.end_pos != mr.initial_range.start_pos &&
+              path[i - 1].second.mapped_range.end_pos == mr.mapped_range.start_pos) {
+                //
+                deletions.push_back(IndelInfo(mr.mapped_range.start_pos,
+                      path[i - 1].second.initial_range.end_pos,
+                      mr.initial_range.start_pos));
+          }
+          INFO("Check in IndelChecker called - exiting from check");
       }
 };
+
 
 template<class Graph, class Mapper>
 class ReferenceCorrector {
@@ -49,49 +85,16 @@ class ReferenceCorrector {
           //checkers_.back()->parent_ = this;
       }
 
-      /** method loads reference file or data and processes all */
-      void LoadReference() {
-
-          //1. Load reference to memory somehow
-          //2, call Process
-          //
-      }
-
       void Process(const Sequence& sequence) const {
           INFO("in LoadReference");
           MappingPath<EdgeId> path = mapper_.MapSequence(sequence);
-          int cur_pos = 0;
-          TRACE("Sequence mapped on " << path.size()
+          INFO("Sequence mapped on " << path.size()
               << " fragments.");
           for (size_t i = 0; i < path.size(); i++) {
               for (auto iter = checkers_.begin(); iter != checkers_.end(); ++ iter) {
                   (*iter)->Check(path, i);
               }
           }
-          /*for (size_t i = 0; i < path.size(); i++) {
-              EdgeId ei = path[i].first;
-              MappingRange mr = path[i].second;
-              int len = (int) (mr.mapped_range.end_pos - mr.mapped_range.start_pos);
-              if (i > 0)
-                  if (path[i - 1].first != ei)
-                      if (g_.EdgeStart(ei) != g_.EdgeEnd(path[i - 1].first)) {
-                          TRACE(
-                              "Contig " << name
-                              << " mapped on not adjacent edge. Position in contig is "
-                              << path[i - 1].second.initial_range.start_pos
-                              + 1
-                              << "--"
-                              << path[i - 1].second.initial_range.end_pos
-                              << " and "
-                              << mr.initial_range.start_pos + 1
-                              << "--" << mr.initial_range.end_pos);
-                      }
-              edge_pos_.AddEdgePosition(ei, name, mr.initial_range.start_pos,
-                                        mr.initial_range.end_pos,
-                                        mr.mapped_range.start_pos,
-                                        mr.mapped_range.end_pos);
-              cur_pos += len;
-          }*/
       }
 };
 }
