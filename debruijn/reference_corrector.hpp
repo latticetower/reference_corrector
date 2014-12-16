@@ -8,14 +8,17 @@
 namespace debruijn_graph {
 
 //base class for all reference checks
+template<class Graph>
 class ReferenceChecker {
+      typedef typename Graph::EdgeId EdgeId;
   public:
       ReferenceChecker() {}
 
       virtual void Check(MappingPath<EdgeId>& path, size_t i) {}
 };
 
-class IndelChecker : public ReferenceChecker {
+template<class Graph>
+class IndelChecker : public ReferenceChecker<Graph> {
   public:
       IndelChecker() {}
 
@@ -31,7 +34,7 @@ class ReferenceCorrector {
     const Graph& g_;
     Mapper mapper_;
     EdgesPositionHandler<Graph>& edge_pos_;
-    std::vector<std::unique_ptr<ReferenceChecker> > checkers_;
+    std::vector<std::unique_ptr<ReferenceChecker<Graph> > > checkers_;
   public:
       ReferenceCorrector(conj_graph_pack &gp_) :
               gp(gp_), g_(gp_.g),
@@ -41,8 +44,8 @@ class ReferenceCorrector {
 
       }
 
-      void add(ReferenceChecker * checker) {
-          checkers_.push_back(std::unique_ptr<ReferenceChecker>(checker));
+      void add(ReferenceChecker<Graph> * checker) {
+          checkers_.push_back(std::unique_ptr<ReferenceChecker<Graph> >(checker));
           //checkers_.back()->parent_ = this;
       }
 
