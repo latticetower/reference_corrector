@@ -5,6 +5,8 @@
 #include "sequence_mapper.hpp"
 #include "sequence/sequence.hpp"
 
+#include "omni/path_processor.hpp"
+
 namespace debruijn_graph {
 
 //base class for all reference checks
@@ -14,7 +16,7 @@ class ReferenceChecker {
   public:
       ReferenceChecker() {}
 
-      virtual void Check(MappingPath<EdgeId>& path, size_t i) {}
+      virtual void Check(MappingPath<EdgeId>& , size_t ) {}
 };
 
 struct IndelInfo{
@@ -67,6 +69,7 @@ class IndelChecker : public ReferenceChecker<Graph> {
 template<class Graph>
 class MobileElementInserionChecker : public ReferenceChecker<Graph> {
       typedef typename Graph::EdgeId EdgeId;
+      typedef typename Graph::VertexId VertexId;
       Graph & g_;
       //TODO: add some storage for data
   public:
@@ -74,10 +77,35 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
 
       void Check(MappingPath<EdgeId>& path, size_t i) {
           INFO("Check in MobileElementInserionChecker called");
-          EdgeId ei = path[i].first;
-          MappingRange mr = path[i].second;
+          if (i == 0)
+              return;
+          EdgeId prev_edge = path[i - 1].first;
+          EdgeId edge = path[i].first;
+          if (edge == prev_edge)
+              return; // not impl
+          if (g_.EdgeStart(edge) == g_.EdgeEnd(prev_edge))
+              return;
+          VertexId start_v = g_.EdgeEnd(prev_edge);
+          VertexId end_v = g_.EdgeStart(edge);
 
-          //TODO: add conditions
+          //FIX: the following code is from pac_index.hpp. should modify for finding mobile elements
+          PathStorageCallback<Graph> callback(g_);
+          PathProcessor<Graph> path_processor(g_, 0, 4000, start_v, end_v, callback);
+          //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
+          path_processor.Process();
+          vector<vector<EdgeId> > paths = callback.paths();
+          stringstream s_buf;
+          for (auto p_iter = paths.begin(); p_iter != paths.end(); p_iter++) {
+              size_t tlen = 0;
+              for (auto path_iter = p_iter->begin();
+                      path_iter != p_iter->end();
+                      path_iter++) {
+                  tlen += g_.length(*path_iter);
+              }
+              s_buf << tlen << " ";
+          }
+          DEBUG(s_buf.str());
+          //TODO: instead of simply output to console information about path lengths, should check if edges are near or smth
 
           INFO("Check in IndelChecker called - exiting from check");
       }
