@@ -24,12 +24,14 @@ struct IndelInfo{
     }
 };
 
-//TODO: implement this
+/** Very simple class, checks only indels inside edges and saves
+  * them to 2 vectors (for insertions and deletions separately)
+  **/
 template<class Graph>
 class IndelChecker : public ReferenceChecker<Graph> {
       typedef typename Graph::EdgeId EdgeId;
       Graph & g_;
-      vector<IndelInfo> insertions, deletions;//TODO: check types
+      vector<IndelInfo> insertions, deletions;
       //these two vectors contain positions in reference
   public:
       IndelChecker(Graph& g): g_(g) {}
@@ -39,7 +41,6 @@ class IndelChecker : public ReferenceChecker<Graph> {
           EdgeId ei = path[i].first;
           MappingRange mr = path[i].second;
 
-          int len = (int) (mr.mapped_range.end_pos - mr.mapped_range.start_pos);
           //TODO: check and add +1 values if needed
           //check insertion in reference:
           if (path[i - 1].second.initial_range.end_pos == mr.initial_range.start_pos &&
@@ -58,6 +59,26 @@ class IndelChecker : public ReferenceChecker<Graph> {
                       path[i - 1].second.initial_range.end_pos,
                       mr.initial_range.start_pos));
           }
+          INFO("Check in IndelChecker called - exiting from check");
+      }
+};
+
+/** mobile element insertions detector */
+template<class Graph>
+class MobileElementInserionChecker : public ReferenceChecker<Graph> {
+      typedef typename Graph::EdgeId EdgeId;
+      Graph & g_;
+      //TODO: add some storage for data
+  public:
+      MobileElementInserionChecker(Graph& g): g_(g) {}
+
+      void Check(MappingPath<EdgeId>& path, size_t i) {
+          INFO("Check in MobileElementInserionChecker called");
+          EdgeId ei = path[i].first;
+          MappingRange mr = path[i].second;
+
+          //TODO: add conditions
+
           INFO("Check in IndelChecker called - exiting from check");
       }
 };
