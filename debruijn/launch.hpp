@@ -55,11 +55,12 @@ void assemble_genome() {
     if (cfg::get().gap_closer_enable && cfg::get().gc.after_simplify)
         SPAdes.add(new debruijn_graph::GapClosing("late_gapcloser"));
     SPAdes.add(new debruijn_graph::SimplificationCleanup());
+
+
     if (cfg::get().correct_mismatches)
         SPAdes.add(new debruijn_graph::MismatchCorrection());
-    //TODO: should add option to enable or disable reference correction here
-    SPAdes.add(new debruijn_graph::ReferenceCorrection());
-    
+
+
     if (cfg::get().rr_enable) {
         bool run_pacbio = false;
         for (size_t i = 0; i < cfg::get().ds.reads.lib_count(); ++i) {
@@ -78,7 +79,9 @@ void assemble_genome() {
         SPAdes.add(new debruijn_graph::ContigOutput());
     }
 
-
+//TODO: should add option to enable or disable reference correction here
+if (cfg::get().correct_reference)
+    SPAdes.add(new debruijn_graph::ReferenceCorrection());
 
     SPAdes.run(conj_gp, cfg::get().entry_point.c_str());
 

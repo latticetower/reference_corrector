@@ -2,10 +2,15 @@
 
 #include <vector>
 
+#include "standard_base.hpp"
 #include "sequence_mapper.hpp"
 #include "sequence/sequence.hpp"
 
 #include "omni/path_processor.hpp"
+#include "omni/visualization/visualization_utils.hpp"
+#include "omni/visualization/graph_colorer.hpp"
+
+#include "stats/debruijn_stats.hpp"
 
 namespace debruijn_graph {
 
@@ -17,6 +22,7 @@ class ReferenceChecker {
       ReferenceChecker() {}
 
       virtual void Check(MappingPath<EdgeId>& , size_t ) {}
+      virtual void Write(MappingPath<EdgeId>& ) {}
 };
 
 struct IndelInfo{
@@ -63,6 +69,8 @@ class IndelChecker : public ReferenceChecker<Graph> {
           }
           INFO("Check in IndelChecker called - exiting from check");
       }
+      void Write(MappingPath<EdgeId>& ) {
+      }
 };
 
 /** mobile element insertions detector */
@@ -70,10 +78,12 @@ template<class Graph>
 class MobileElementInserionChecker : public ReferenceChecker<Graph> {
       typedef typename Graph::EdgeId EdgeId;
       typedef typename Graph::VertexId VertexId;
+
+      conj_graph_pack & gp_;
       Graph & g_;
       //TODO: add some storage for data
   public:
-      MobileElementInserionChecker(Graph& g): g_(g) {}
+      MobileElementInserionChecker(conj_graph_pack&gp, Graph& g) : gp_(gp), g_(g) {}
 
       void Check(MappingPath<EdgeId>& path, size_t i) {
           INFO("Check in MobileElementInserionChecker called");
@@ -109,6 +119,17 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
 
           INFO("Check in IndelChecker called - exiting from check");
       }
+      void Write(MappingPath<EdgeId>& path) {
+          LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
+          EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
+          CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
+
+          auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
+
+          WriteComponentsAlongPath(g_, path.path(), "reference_alterations/", edge_colorer, labeler);
+          //  auto edge_colorer = make_shared<CompositeEdgeColorer<Graph>>("black");
+
+      }
 };
 
 
@@ -143,6 +164,9 @@ class ReferenceCorrector {
               for (auto iter = checkers_.begin(); iter != checkers_.end(); ++ iter) {
                   (*iter)->Check(path, i);
               }
+          }
+          for (auto iter = checkers_.begin(); iter != checkers_.end(); ++ iter) {
+              (*iter)->Write(path);
           }
       }
 };
