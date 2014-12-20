@@ -11,8 +11,10 @@ void ReferenceCorrection::run(conj_graph_pack &gp, const char*) {
     INFO("ReferenceCorrection started");
     //TODO: to do
     ReferenceCorrector<Graph, MapperClass> corrector(gp);
-    corrector.add(new IndelChecker<Graph>(gp.g));
-    corrector.add(new MobileElementInserionChecker<Graph>(gp, gp.g));
+	int coverage_threshold = 10;
+    corrector.add(new IndelChecker<Graph>(gp.g, coverage_threshold));
+	// probably deprecated
+    //corrector.add(new MobileElementInserionChecker<Graph>(gp, gp.g));
     corrector.Process(cfg::get().ds.reference_genome);
 
     INFO("ReferenceCorrection ended");

@@ -2,6 +2,8 @@
 
 #include <vector>
 
+#include "coverage.hpp"
+
 #include "standard_base.hpp"
 #include "sequence_mapper.hpp"
 #include "sequence/sequence.hpp"
@@ -32,20 +34,35 @@ struct IndelInfo{
     }
 };
 
+template<class Graph>
+struct MobileElementInfo
+{
+	vector<Graph::EdgeId> mobile_element_edges;
+};
+
 /** Very simple class, checks only indels inside edges and saves
   * them to 2 vectors (for insertions and deletions separately)
   **/
 template<class Graph>
 class IndelChecker : public ReferenceChecker<Graph> {
+
       typedef typename Graph::EdgeId EdgeId;
       Graph & g_;
       vector<IndelInfo> insertions, deletions;
       //these two vectors contain positions in reference
+	  vector<MobileElementInfo<Graph>> mobile_elements;
+	  int coverage_threshold;
   public:
-      IndelChecker(Graph& g): g_(g) {}
+      IndelChecker(Graph& g): g_(g), coverage_threshold(0) {}
+	  IndelChecker(Graph& g, int coverage_threshold): g_(g), coverage_threshold(coverage_threshold) {}
 
       void Check(MappingPath<EdgeId>& path, size_t i) {
           INFO("Check in IndelChecker called");
+
+		  if (i == 0)
+		  {
+			  return;
+		  }
           EdgeId ei = path[i].first;
           MappingRange mr = path[i].second;
 
@@ -53,11 +70,15 @@ class IndelChecker : public ReferenceChecker<Graph> {
           //check insertion in reference:
           if (path[i - 1].second.initial_range.end_pos == mr.initial_range.start_pos &&
               path[i - 1].second.mapped_range.end_pos != mr.mapped_range.start_pos) {
-                //
-                insertions.push_back(IndelInfo(
-                        mr.initial_range.start_pos,
-                        path[i - 1].second.mapped_range.end_pos,
-                        mr.mapped_range.start_pos));
+			  insertions.push_back(IndelInfo(
+				  mr.initial_range.start_pos,
+				  path[i - 1].second.mapped_range.end_pos,
+				  mr.mapped_range.start_pos));
+			 
+			  if (path[i].first != path[i - 1].first)
+			  {
+				  CollectMobileElements(g_.EdgeEnd(path[i - 1].first), g_.EdgeStart(path[i].first));
+			  }
           }
           //check deletions in reference:
           if (path[i - 1].second.initial_range.end_pos != mr.initial_range.start_pos &&
@@ -69,6 +90,43 @@ class IndelChecker : public ReferenceChecker<Graph> {
           }
           INFO("Check in IndelChecker called - exiting from check");
       }
+
+	  // checks all the paths between start and end and if an edge on a path has coverage more than coverage_threshold it will be stored
+	  // in mobile_elements vector
+	  void CollectMobileElements(VertexId start, VertexId end)
+	  {
+		  if (start == end)
+		  {
+			  return;
+		  }
+		  PathStorageCallback<Graph> callback(g_);
+		  PathProcessor<Graph> path_processor(g_, 0, 4000, start, end, callback);
+		  //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
+		  path_processor.Process();
+		  vector<vector<EdgeId>> paths = callback.paths();
+		  CoverageIndex<Graph> coverage_index(g_);
+		  bool new_mobile_element = true;
+		  for (vector<EdgeId>& path : paths)
+		  {
+			  for (EdgeId edge : path)
+			  {
+				  if (coverage_index.coverage(edge) >= coverage_threshold)
+				  {
+					  if (new_mobile_element)
+					  {
+						  mobile_elements.push_back(new MobileElementInfo<Graph>());
+						  new_mobile_element = false;
+					  }
+					  mobile_elements.back().mobile_element_edges.push_back(edge);
+				  }
+				  else
+				  {
+					  new_mobile_element = true;
+				  }
+			  }
+		  }
+	  }
+
       void Write(MappingPath<EdgeId>& ) {
       }
 };
