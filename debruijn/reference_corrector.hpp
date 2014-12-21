@@ -2,8 +2,6 @@
 
 #include <vector>
 
-#include "coverage.hpp"
-
 #include "standard_base.hpp"
 #include "sequence_mapper.hpp"
 #include "sequence/sequence.hpp"
@@ -11,6 +9,8 @@
 #include "omni/path_processor.hpp"
 #include "omni/visualization/visualization_utils.hpp"
 #include "omni/visualization/graph_colorer.hpp"
+
+#include "omni/coverage.hpp" // for CoverageIndex
 
 #include "stats/debruijn_stats.hpp"
 
@@ -34,35 +34,23 @@ struct IndelInfo{
     }
 };
 
-template<class Graph>
-struct MobileElementInfo
-{
-	vector<Graph::EdgeId> mobile_element_edges;
-};
 
 /** Very simple class, checks only indels inside edges and saves
   * them to 2 vectors (for insertions and deletions separately)
   **/
 template<class Graph>
 class IndelChecker : public ReferenceChecker<Graph> {
-
       typedef typename Graph::EdgeId EdgeId;
       Graph & g_;
       vector<IndelInfo> insertions, deletions;
       //these two vectors contain positions in reference
-	  vector<MobileElementInfo<Graph>> mobile_elements;
-	  int coverage_threshold;
   public:
-      IndelChecker(Graph& g): g_(g), coverage_threshold(0) {}
-	  IndelChecker(Graph& g, int coverage_threshold): g_(g), coverage_threshold(coverage_threshold) {}
+      IndelChecker(Graph& g): g_(g) {}
 
       void Check(MappingPath<EdgeId>& path, size_t i) {
           INFO("Check in IndelChecker called");
-
-		  if (i == 0)
-		  {
-			  return;
-		  }
+          if (i == 0)
+              return;
           EdgeId ei = path[i].first;
           MappingRange mr = path[i].second;
 
@@ -70,65 +58,30 @@ class IndelChecker : public ReferenceChecker<Graph> {
           //check insertion in reference:
           if (path[i - 1].second.initial_range.end_pos == mr.initial_range.start_pos &&
               path[i - 1].second.mapped_range.end_pos != mr.mapped_range.start_pos) {
-			  insertions.push_back(IndelInfo(
-				  mr.initial_range.start_pos,
-				  path[i - 1].second.mapped_range.end_pos,
-				  mr.mapped_range.start_pos));
-			 
-			  if (path[i].first != path[i - 1].first)
-			  {
-				  CollectMobileElements(g_.EdgeEnd(path[i - 1].first), g_.EdgeStart(path[i].first));
-			  }
+                //
+                insertions.push_back(IndelInfo(
+                        mr.initial_range.start_pos,
+                        path[i - 1].second.mapped_range.end_pos,
+                        mr.mapped_range.start_pos));
           }
           //check deletions in reference:
           if (path[i - 1].second.initial_range.end_pos != mr.initial_range.start_pos &&
               path[i - 1].second.mapped_range.end_pos == mr.mapped_range.start_pos) {
-                //
                 deletions.push_back(IndelInfo(mr.mapped_range.start_pos,
                       path[i - 1].second.initial_range.end_pos,
                       mr.initial_range.start_pos));
           }
           INFO("Check in IndelChecker called - exiting from check");
       }
-
-	  // checks all the paths between start and end and if an edge on a path has coverage more than coverage_threshold it will be stored
-	  // in mobile_elements vector
-	  void CollectMobileElements(VertexId start, VertexId end)
-	  {
-		  if (start == end)
-		  {
-			  return;
-		  }
-		  PathStorageCallback<Graph> callback(g_);
-		  PathProcessor<Graph> path_processor(g_, 0, 4000, start, end, callback);
-		  //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
-		  path_processor.Process();
-		  vector<vector<EdgeId>> paths = callback.paths();
-		  CoverageIndex<Graph> coverage_index(g_);
-		  bool new_mobile_element = true;
-		  for (vector<EdgeId>& path : paths)
-		  {
-			  for (EdgeId edge : path)
-			  {
-				  if (coverage_index.coverage(edge) >= coverage_threshold)
-				  {
-					  if (new_mobile_element)
-					  {
-						  mobile_elements.push_back(new MobileElementInfo<Graph>());
-						  new_mobile_element = false;
-					  }
-					  mobile_elements.back().mobile_element_edges.push_back(edge);
-				  }
-				  else
-				  {
-					  new_mobile_element = true;
-				  }
-			  }
-		  }
-	  }
-
       void Write(MappingPath<EdgeId>& ) {
       }
+      DECL_LOGGER("MobileElementInserionChecker");//this class shouldn't be called now, added logger to check it
+};
+
+template<class Graph>
+struct MobileElementInfo
+{
+    vector<typename Graph::EdgeId> mobile_element_edges;
 };
 
 /** mobile element insertions detector */
@@ -139,12 +92,69 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
 
       conj_graph_pack & gp_;
       Graph & g_;
-      //TODO: add some storage for data
+      vector<MobileElementInfo<Graph> > mobile_elements_;
+      int coverage_threshold_;
   public:
-      MobileElementInserionChecker(conj_graph_pack&gp, Graph& g) : gp_(gp), g_(g) {}
+    MobileElementInserionChecker(conj_graph_pack& gp, int coverage_threshold = 0) :
+            gp_(gp), g_(gp.g), coverage_threshold_(coverage_threshold) {}
 
-      void Check(MappingPath<EdgeId>& path, size_t i) {
-          INFO("Check in MobileElementInserionChecker called");
+    void Check(MappingPath<EdgeId>& path, size_t i) {
+        INFO("Check in MobileElementInserionChecker called");
+        if (i == 0)
+            return;
+        EdgeId prev_edge = path[i - 1].first;
+        EdgeId edge = path[i].first;
+        if (edge == prev_edge)
+            return; // not impl
+        if (g_.EdgeStart(edge) == g_.EdgeEnd(prev_edge))
+            return;
+        CollectMobileElements(g_.EdgeEnd(prev_edge), g_.EdgeStart(edge));
+
+        //FIX: the following code is from pac_index.hpp. should modify for finding mobile elements
+        //FIX: code is deprecated! should remove
+        /**PathStorageCallback<Graph> callback(g_);
+        PathProcessor<Graph> path_processor(g_, 0, 4000, start_v, end_v, callback);
+        //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
+        path_processor.Process();
+        vector<vector<EdgeId> > paths = callback.paths();
+        stringstream s_buf;
+        for (auto p_iter = paths.begin(); p_iter != paths.end(); p_iter++) {
+            size_t tlen = 0;
+            for (auto path_iter = p_iter->begin();
+                    path_iter != p_iter->end();
+                    path_iter++) {
+                tlen += g_.length(*path_iter);
+            }
+            s_buf << tlen << " ";
+        }
+        DEBUG(s_buf.str());
+        */
+        //TODO: instead of simply output to console information about path lengths, should check if edges are near or smth
+
+        INFO("Check in IndelChecker called - exiting from check");
+    }
+
+
+    void Write(MappingPath<EdgeId>& path) {
+        LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
+        EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
+        CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
+
+        auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
+
+        WriteComponentsAlongPath(g_, path.path(), "reference_alterations/", edge_colorer, labeler);
+        //  auto edge_colorer = make_shared<CompositeEdgeColorer<Graph>>("black");
+
+    }
+    /**
+    void Write(MappingPath<EdgeId>& path) {
+          for (size_t i = 0; i < path.size(); i++) {
+              WritePathFragment(path, i);
+          }
+      }
+
+      void WritePathFragment(MappingPath<EdgeId>& path, size_t i) {
+          INFO("WritePathFragment in MobileElementInserionChecker called");
           if (i == 0)
               return;
           EdgeId prev_edge = path[i - 1].first;
@@ -162,22 +172,31 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
           //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
           path_processor.Process();
           vector<vector<EdgeId> > paths = callback.paths();
-          stringstream s_buf;
           for (auto p_iter = paths.begin(); p_iter != paths.end(); p_iter++) {
-              size_t tlen = 0;
-              for (auto path_iter = p_iter->begin();
-                      path_iter != p_iter->end();
-                      path_iter++) {
-                  tlen += g_.length(*path_iter);
-              }
-              s_buf << tlen << " ";
+              WritePathFragmentWithPath(path, i, *p_iter);
+
           }
-          DEBUG(s_buf.str());
+
           //TODO: instead of simply output to console information about path lengths, should check if edges are near or smth
 
           INFO("Check in IndelChecker called - exiting from check");
       }
-      void Write(MappingPath<EdgeId>& path) {
+
+      void WritePathFragmentWithPath(MappingPath<EdgeId>& path, size_t i, vector<EdgeId> & graph_path) {
+          using namespace omnigraph::visualization;
+          LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
+          EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
+          CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
+          auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
+
+          string file_name = "_|_someshi.dot";
+          GraphComponent<Graph> component = omnigraph::EdgesNeighborhood(gp_.g, graph_path);
+          WriteComponent(component, file_name, edge_colorer, labeler);
+
+
+      }
+
+      void Write1(MappingPath<EdgeId>& path) {
           LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
           EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
           CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
@@ -188,6 +207,41 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
           //  auto edge_colorer = make_shared<CompositeEdgeColorer<Graph>>("black");
 
       }
+    */
+  private:
+
+    /** checks all the paths between start and end.
+      * if an edge on a path has coverage greater than coverage_threshold, it will be stored
+      * in mobile_elements vector
+     */
+    void CollectMobileElements(VertexId start, VertexId end) {
+        if (start == end)
+            return;
+        PathStorageCallback<Graph> callback(g_);
+        PathProcessor<Graph> path_processor(g_, 0, 4000, start, end, callback);
+        //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
+        path_processor.Process();
+        vector<vector<EdgeId>> paths = callback.paths();
+        CoverageIndex<Graph> coverage_index(g_);
+
+        bool new_mobile_element = true;
+        for (vector<EdgeId>& path : paths) {
+            //TODO: check logic!
+            for (EdgeId edge : path) {
+                if (coverage_index.coverage(edge) >= coverage_threshold_) {
+                    if (new_mobile_element) {
+                      mobile_elements_.push_back(new MobileElementInfo<Graph>());
+                      new_mobile_element = false;
+                    }
+                    mobile_elements_.back().mobile_element_edges.push_back(edge);
+                }
+                else {
+                  new_mobile_element = true;
+                }
+            }
+        }
+    }
+    DECL_LOGGER("MobileElementInserionChecker");
 };
 
 
