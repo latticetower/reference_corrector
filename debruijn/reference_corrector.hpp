@@ -82,6 +82,9 @@ template<class Graph>
 struct MobileElementInfo
 {
     vector<typename Graph::EdgeId> mobile_element_edges;
+    MobileElementInfo() {
+
+    }
 };
 
 /** mobile element insertions detector */
@@ -92,7 +95,7 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
 
       conj_graph_pack & gp_;
       Graph & g_;
-      vector<MobileElementInfo<Graph> > mobile_elements_;
+      vector<std::unique_ptr<MobileElementInfo<Graph> > > mobile_elements_;
       int coverage_threshold_;
   public:
     MobileElementInserionChecker(conj_graph_pack& gp, int coverage_threshold = 0) :
@@ -230,10 +233,11 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
             for (EdgeId edge : path) {
                 if (coverage_index.coverage(edge) >= coverage_threshold_) {
                     if (new_mobile_element) {
-                      mobile_elements_.push_back(new MobileElementInfo<Graph>());
+                      mobile_elements_.push_back(std::unique_ptr<MobileElementInfo<Graph>>(
+                          new MobileElementInfo<Graph>()));
                       new_mobile_element = false;
                     }
-                    mobile_elements_.back().mobile_element_edges.push_back(edge);
+                    mobile_elements_.back()->mobile_element_edges.push_back(edge);
                 }
                 else {
                   new_mobile_element = true;
