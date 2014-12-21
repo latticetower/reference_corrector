@@ -16,6 +16,57 @@
 
 namespace debruijn_graph {
 
+template<typename Graph>
+using MappingElement = std::pair<const typename Graph::EdgeId, const MappingRange>;
+
+
+/** helper method to draw path, smth, smth
+  * omni/visualization/graph_colorer.hpp
+  */
+template <class Graph>
+shared_ptr<omnigraph::visualization::GraphColorer<Graph>> DefaultColorer(const Graph& g,
+    const vector<typename Graph::EdgeId>& graph_path,
+    const vector<typename Graph::EdgeId>& reference_path) {
+      using namespace omnigraph::visualization;
+  shared_ptr<ElementColorer<typename Graph::EdgeId>> edge_colorer =
+            make_shared<CompositeEdgeColorer<Graph>>(
+                    make_shared<SetColorer<Graph>>(g, graph_path, "blue"),
+                    make_shared<SetColorer<Graph>>(g, reference_path, "green"), "black");
+  return DefaultColorer(g, edge_colorer);
+}
+/** method saves current path in graph and reference fragment to given file.
+  * green edge == reference fragment, blue - current path, black - other edges in graph
+  */
+template <typename Graph>
+void WritePathFragment(conj_graph_pack & gp_,
+        vector<typename Graph::EdgeId> & graph_path,
+        vector<typename Graph::EdgeId> & reference_path,
+        string file_name = "fff1.dot") {
+
+    INFO("Writing path fragment")
+    LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
+    EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
+    CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
+    auto edge_colorer = DefaultColorer(gp_.g, graph_path, reference_path);
+
+    vector<typename Graph::VertexId> vv = {gp_.g.EdgeStart(graph_path.front())};
+
+    set<VertexId> vertices;
+    for (auto iter = graph_path.begin(); iter!= graph_path.end(); ++iter) {
+      vertices.insert(gp_.g.EdgeStart(*iter));
+      vertices.insert(gp_.g.EdgeEnd(*iter));
+    }
+    for (auto iter = reference_path.begin(); iter != reference_path.end(); ++iter) {
+      vertices.insert(gp_.g.EdgeStart(*iter));
+      vertices.insert(gp_.g.EdgeEnd(*iter));
+    }
+    GraphComponent<Graph> component(gp_.g, vertices.begin(), vertices.end());
+
+    omnigraph::visualization::WriteComponent(component, file_name, edge_colorer, labeler);
+}
+
+
+
 //base class for all reference checks
 template<class Graph>
 class ReferenceChecker {
@@ -81,8 +132,11 @@ class IndelChecker : public ReferenceChecker<Graph> {
 template<class Graph>
 struct MobileElementInfo
 {
+    typename Graph::EdgeId start_edge, end_edge;
     vector<typename Graph::EdgeId> mobile_element_edges;
-    MobileElementInfo() {
+
+    template<class EdgeId>
+    MobileElementInfo(EdgeId s, EdgeId e): start_edge(s), end_edge(e) {
 
     }
 };
@@ -111,115 +165,37 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
             return; // not impl
         if (g_.EdgeStart(edge) == g_.EdgeEnd(prev_edge))
             return;
-        CollectMobileElements(g_.EdgeEnd(prev_edge), g_.EdgeStart(edge));
+        CollectMobileElements(prev_edge, edge);
 
-        //FIX: the following code is from pac_index.hpp. should modify for finding mobile elements
-        //FIX: code is deprecated! should remove
-        /**PathStorageCallback<Graph> callback(g_);
-        PathProcessor<Graph> path_processor(g_, 0, 4000, start_v, end_v, callback);
-        //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
-        path_processor.Process();
-        vector<vector<EdgeId> > paths = callback.paths();
-        stringstream s_buf;
-        for (auto p_iter = paths.begin(); p_iter != paths.end(); p_iter++) {
-            size_t tlen = 0;
-            for (auto path_iter = p_iter->begin();
-                    path_iter != p_iter->end();
-                    path_iter++) {
-                tlen += g_.length(*path_iter);
-            }
-            s_buf << tlen << " ";
-        }
-        DEBUG(s_buf.str());
-        */
-        //TODO: instead of simply output to console information about path lengths, should check if edges are near or smth
+        //TODO: instead of simply output to console information about path lengths,
+        //should check if edges are near or smth
 
         INFO("Check in IndelChecker called - exiting from check");
     }
 
 
-    void Write(MappingPath<EdgeId>& path) {
-        LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
-        EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
-        CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
-
-        auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
-
-        WriteComponentsAlongPath(g_, path.path(), "reference_alterations/", edge_colorer, labeler);
-        //  auto edge_colorer = make_shared<CompositeEdgeColorer<Graph>>("black");
-
+    void Write(MappingPath<EdgeId>& ) {
+        INFO("Write gets called");
+        for (auto & me : mobile_elements_) {
+            vector<EdgeId> reference_path;
+            reference_path.push_back(me->start_edge);
+            reference_path.push_back(me->end_edge);
+            WritePathFragment<Graph>(gp_, me->mobile_element_edges, reference_path);
+        }
     }
-    /**
-    void Write(MappingPath<EdgeId>& path) {
-          for (size_t i = 0; i < path.size(); i++) {
-              WritePathFragment(path, i);
-          }
-      }
 
-      void WritePathFragment(MappingPath<EdgeId>& path, size_t i) {
-          INFO("WritePathFragment in MobileElementInserionChecker called");
-          if (i == 0)
-              return;
-          EdgeId prev_edge = path[i - 1].first;
-          EdgeId edge = path[i].first;
-          if (edge == prev_edge)
-              return; // not impl
-          if (g_.EdgeStart(edge) == g_.EdgeEnd(prev_edge))
-              return;
-          VertexId start_v = g_.EdgeEnd(prev_edge);
-          VertexId end_v = g_.EdgeStart(edge);
-
-          //FIX: the following code is from pac_index.hpp. should modify for finding mobile elements
-          PathStorageCallback<Graph> callback(g_);
-          PathProcessor<Graph> path_processor(g_, 0, 4000, start_v, end_v, callback);
-          //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
-          path_processor.Process();
-          vector<vector<EdgeId> > paths = callback.paths();
-          for (auto p_iter = paths.begin(); p_iter != paths.end(); p_iter++) {
-              WritePathFragmentWithPath(path, i, *p_iter);
-
-          }
-
-          //TODO: instead of simply output to console information about path lengths, should check if edges are near or smth
-
-          INFO("Check in IndelChecker called - exiting from check");
-      }
-
-      void WritePathFragmentWithPath(MappingPath<EdgeId>& path, size_t i, vector<EdgeId> & graph_path) {
-          using namespace omnigraph::visualization;
-          LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
-          EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
-          CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
-          auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
-
-          string file_name = "_|_someshi.dot";
-          GraphComponent<Graph> component = omnigraph::EdgesNeighborhood(gp_.g, graph_path);
-          WriteComponent(component, file_name, edge_colorer, labeler);
-
-
-      }
-
-      void Write1(MappingPath<EdgeId>& path) {
-          LengthIdGraphLabeler<Graph> basic_labeler(gp_.g);
-          EdgePosGraphLabeler<Graph> pos_labeler(gp_.g, gp_.edge_pos);
-          CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
-
-          auto edge_colorer = omnigraph::visualization::DefaultColorer(g_);
-
-          WriteComponentsAlongPath(g_, path.path(), "reference_alterations/", edge_colorer, labeler);
-          //  auto edge_colorer = make_shared<CompositeEdgeColorer<Graph>>("black");
-
-      }
-    */
   private:
 
     /** checks all the paths between start and end.
       * if an edge on a path has coverage greater than coverage_threshold, it will be stored
       * in mobile_elements vector
      */
-    void CollectMobileElements(VertexId start, VertexId end) {
-        if (start == end)
+    void CollectMobileElements(EdgeId start_edge, EdgeId end_edge) {
+        if (start_edge == end_edge)
             return;
+        VertexId start = g_.EdgeEnd(start_edge);
+        VertexId end = g_.EdgeStart(end_edge);
+
         PathStorageCallback<Graph> callback(g_);
         PathProcessor<Graph> path_processor(g_, 0, 4000, start, end, callback);
         //copypasted prev line from pac_index.hpp. still don't know what 0 and 4000 mean
@@ -234,7 +210,7 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
                 if (coverage_index.coverage(edge) >= coverage_threshold_) {
                     if (new_mobile_element) {
                       mobile_elements_.push_back(std::unique_ptr<MobileElementInfo<Graph>>(
-                          new MobileElementInfo<Graph>()));
+                          new MobileElementInfo<Graph>(start_edge, end_edge)));
                       new_mobile_element = false;
                     }
                     mobile_elements_.back()->mobile_element_edges.push_back(edge);
@@ -245,6 +221,8 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
             }
         }
     }
+
+
     DECL_LOGGER("MobileElementInserionChecker");
 };
 
