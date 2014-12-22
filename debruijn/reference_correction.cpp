@@ -9,6 +9,8 @@ typedef debruijn_graph::NewExtendedSequenceMapper<debruijn_graph::Graph, Index> 
 
 void ReferenceCorrection::run(conj_graph_pack &gp, const char*) {
     INFO("ReferenceCorrection started");
+    gp.EnsureDebugInfo();
+    //gp.EnsureBasicMapping();
     //TODO: to do
     ReferenceCorrector<Graph, MapperClass> corrector(gp);
 
