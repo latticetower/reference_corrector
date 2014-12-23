@@ -16,7 +16,9 @@ void ReferenceCorrection::run(conj_graph_pack &gp, const char*) {
 
     //corrector.add(new IndelChecker<Graph>(gp.g));
     int coverage_threshold = 10;
+    corrector.add(new IndelChecker<Graph>(gp.g));
     corrector.add(new MobileElementInserionChecker<Graph>(gp, coverage_threshold));
+    corrector.add(new MobileElementDeletionChecker<Graph>(gp, coverage_threshold));
     corrector.Process(cfg::get().ds.reference_genome);
 
     INFO("ReferenceCorrection ended");

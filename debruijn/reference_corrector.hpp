@@ -13,6 +13,7 @@
 #include "omni/coverage.hpp" // for CoverageIndex
 
 #include "stats/debruijn_stats.hpp"
+#include "io/osequencestream.hpp"
 
 namespace debruijn_graph {
 
@@ -42,6 +43,7 @@ void WritePathFragment(
         conj_graph_pack & gp_,
         vector<EdgeId> & graph_path,
         vector<EdgeId> & reference_path,
+        vector<EdgeId> & background_edges,
         string file_name = "fragment.dot") {
 
     INFO("Writing path fragment")
@@ -59,6 +61,11 @@ void WritePathFragment(
     for (auto iter = reference_path.begin(); iter != reference_path.end(); ++iter) {
         vertices.insert(gp_.g.EdgeStart(*iter));
         vertices.insert(gp_.g.EdgeEnd(*iter));
+    }
+
+    for (auto edge : background_edges) {
+      vertices.insert(gp_.g.EdgeStart(edge));
+      vertices.insert(gp_.g.EdgeEnd(edge));
     }
     GraphComponent<Graph> component(gp_.g, vertices.begin(), vertices.end());
     omnigraph::visualization::WriteComponent(component, file_name, edge_colorer, labeler);
@@ -123,9 +130,10 @@ class IndelChecker : public ReferenceChecker<Graph> {
           }
           INFO("Check in IndelChecker called - exiting from check");
       }
-      void Write(MappingPath<EdgeId>& , string ) {
+      void Write(MappingPath<EdgeId>& path, string ) {
+        INFO("Found " + ToString(insertions.size()) + " ins and del: " + ToString(deletions.size()));
       }
-      DECL_LOGGER("MobileElementInserionChecker");//this class shouldn't be called now, added logger to check it
+      DECL_LOGGER("IndelChecker");//this class shouldn't be called now, added logger to check it
 };
 
 template<class Graph>
@@ -165,7 +173,7 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
         if (g_.EdgeStart(edge) == g_.EdgeEnd(prev_edge))
             return;
 
-        CollectMobileElements(prev_edge, edge);
+        CollectMobileElements(prev_edge, edge, i);
 
         //TODO: instead of simply output to console information about path lengths,
         //should check if edges are near or smth
@@ -191,17 +199,42 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
     }
 
   private:
+    void WriteToFasta(string filename, string str) {
+      io::osequencestream oss(filename);
+      oss << ">f\n";
+      size_t cur = 0;
+      while (cur < str.size()) {
+        oss << str.substr(cur, 60) << "\n";
+        cur += 60;
+      }
+    }
 
+    string PathToString(const vector<EdgeId> & path) const {
+      stringstream ss;
+      size_t k_ = gp_.g.k();
+      if (path.size() > 0) {
+        ss << gp_.g.EdgeNucls(path[0]).Subseq(0, k_).str();
+      }
 
-    void WriteMEToFile(vector<EdgeId>& path, int i, EdgeId start_edge, EdgeId end_edge, string output_dir = "reference_correction/") {
+      for (size_t i = 1; i < path.size(); ++i) {
+        ss << gp_.g.EdgeNucls(path[i]).Subseq(k_).str();
+      }
+      return ss.str();
+    }
+
+    void WriteMEToFile(vector<EdgeId>& path, size_t i, size_t k, EdgeId start_edge, EdgeId end_edge, string output_dir = "reference_correction/") {
         make_dir(output_dir);
         INFO("WriteMEToFile gets called");
-        INFO("info: " << i << gp_.g.int_id(start_edge) << " " << gp_.g.int_id(end_edge));
+        INFO("info: " << i << k << gp_.g.int_id(start_edge) << " " << gp_.g.int_id(end_edge));
+
+
+        WriteToFasta(output_dir + "paths.txt", PathToString(path));
+        //INFO(cw.ToString(bp));
         //WritePathFragment(path, reference_path, file_name);
     }
     void WriteME(
                  vector<EdgeId>& path,
-                 int i,
+                 size_t i, size_t k,
                  EdgeId start_edge,
                  EdgeId end_edge,
                  string output_dir = "") {
@@ -210,9 +243,16 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
         vector<EdgeId> reference_path;
         reference_path.push_back(start_edge);
         reference_path.push_back(end_edge);
-        string file_name = output_dir + "fragment_" + ToString(i) + ".dot";
+        vector<EdgeId> background_edges;
+        vector<EdgeId> const & t = g_.AdjacentEdges(g_.EdgeEnd(start_edge));
+        background_edges.insert(background_edges.begin(), t.begin(), t.end());
+
+        vector<EdgeId> const& t2 = g_.AdjacentEdges(g_.EdgeStart(end_edge));
+        background_edges.insert(background_edges.begin(), t2.begin(), t2.end());
+
+        string file_name = output_dir + "fragment_" + ToString(i) + "_" + ToString(k) + ".dot";
         INFO(file_name);
-        WritePathFragment<Graph>(gp_, path, reference_path, file_name);
+        WritePathFragment<Graph>(gp_, path, reference_path, background_edges, file_name);
     }
 
 
@@ -222,7 +262,7 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
       * if an edge on a path has coverage greater than coverage_threshold, it will be stored
       * in mobile_elements vector
      */
-    void CollectMobileElements(EdgeId start_edge, EdgeId end_edge) {
+    void CollectMobileElements(EdgeId start_edge, EdgeId end_edge, size_t i) {
         if (start_edge == end_edge)
             return;
         make_dir("reference_correction/");
@@ -235,9 +275,8 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
         path_processor.Process();
         vector<vector<EdgeId>> paths = callback.paths();
         CoverageIndex<Graph> coverage_index(g_);
-        int k = 0;
         bool new_mobile_element = true;
-
+        size_t k = 0;
         for (vector<EdgeId>& path : paths) {
             //TODO: check logic!
             for (EdgeId edge : path) {
@@ -246,8 +285,8 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
                     if (new_mobile_element) {
                         //WriteME()
                         k++;
-                        WriteMEToFile(path, k, start_edge, end_edge);
-                        WriteME(path, k, start_edge, end_edge);
+                        WriteMEToFile(path, i, k, start_edge, end_edge);
+                        WriteME(path, i, k, start_edge, end_edge);
 
                         /*mobile_elements_.push_back(
                             make_shared<MobileElementInfo<Graph>>(
@@ -269,6 +308,132 @@ class MobileElementInserionChecker : public ReferenceChecker<Graph> {
 
 
     DECL_LOGGER("MobileElementInserionChecker");
+};
+
+/** mobile element insertions detector */
+template<class Graph>
+class MobileElementDeletionChecker : public ReferenceChecker<Graph> {
+    typedef typename Graph::EdgeId EdgeId;
+    typedef typename Graph::VertexId VertexId;
+
+    conj_graph_pack & gp_;
+    Graph & g_;
+    //vector<std::shared_ptr<MobileElementInfo<Graph> > > mobile_elements_;
+    int coverage_threshold_;
+public:
+    MobileElementDeletionChecker(conj_graph_pack& gp, int coverage_threshold = 0) :
+    gp_(gp), g_(gp.g), coverage_threshold_(coverage_threshold) {}
+
+    void Check(MappingPath<EdgeId>& path, size_t i) {
+        //INFO("Check in MobileElementInserionChecker called");
+        //if (i == 0)
+        //    return;
+        using namespace omnigraph::visualization;
+        EdgeId prev_edge = path[i].first;
+
+        for (size_t k = i + 2; k < path.size(); k++) {
+            EdgeId edge = path[k].first;
+            if (g_.EdgeEnd(prev_edge) == g_.EdgeStart(edge)) {
+                //
+                vector<EdgeId> way;
+                for (size_t j = i + 1; j < k; j++) {
+                    way.push_back(path[j].first);
+                    CollectMobileElements(prev_edge, edge, way, i, k);
+                    break;
+                }
+            }
+        }
+    }
+
+
+    void Write(MappingPath<EdgeId>& , string output_dir ) {
+      /*
+      make_dir(output_dir);
+      INFO("Write gets called");
+      int k = 0;
+      for (auto & me : mobile_elements_) {
+      vector<EdgeId> reference_path;
+      reference_path.push_back(me->start_edge);
+      reference_path.push_back(me->end_edge);
+      string file_name = output_dir + "fragment_" + ToString(k) + "/.dot";
+      k++;
+      WritePathFragment<Graph>(gp_, me->mobile_element_edges, me->mobile_element_edges, file_name);
+    }
+    */
+  }
+
+    private:
+
+      void WriteME(
+      vector<EdgeId>& path,
+      size_t i, size_t k,
+      EdgeId start_edge,
+      EdgeId end_edge,
+      string output_dir = "") {
+
+        INFO("WriteME gets called");
+        vector<EdgeId> reference_path;
+        reference_path.push_back(start_edge);
+        reference_path.push_back(end_edge);
+        vector<EdgeId> background_edges;
+        vector<EdgeId> const & t = g_.AdjacentEdges(g_.EdgeEnd(start_edge));
+        background_edges.insert(background_edges.begin(), t.begin(), t.end());
+
+        vector<EdgeId> const& t2 = g_.AdjacentEdges(g_.EdgeStart(end_edge));
+        background_edges.insert(background_edges.begin(), t2.begin(), t2.end());
+
+        string file_name = output_dir + "deletion_" + ToString(i) + "_" + ToString(k) + ".dot";
+        INFO(file_name);
+        WritePathFragment<Graph>(gp_, path, reference_path, background_edges, file_name);
+      }
+
+
+
+
+      /** checks all the paths between start and end.
+      * if an edge on a path has coverage greater than coverage_threshold, it will be stored
+      * in mobile_elements vector
+      */
+      void CollectMobileElements(EdgeId start_edge, EdgeId end_edge, vector<EdgeId> & path, size_t i, size_t k) {
+        if (start_edge == end_edge)
+          return;
+          make_dir("reference_correction/");
+          VertexId start = g_.EdgeStart(start_edge);
+          VertexId end = g_.EdgeEnd(end_edge);
+
+          CoverageIndex<Graph> coverage_index(g_);
+          bool new_mobile_element = true;
+
+
+            for (EdgeId edge : path) {
+              INFO("coverage for current edge is " << coverage_index.coverage(edge));
+              if (coverage_index.coverage(edge) >= coverage_threshold_) {
+                if (new_mobile_element) {
+                  //WriteME()
+                  k++;
+
+                  WriteME(path, i, k, start_edge, end_edge);
+
+                  /*mobile_elements_.push_back(
+                  make_shared<MobileElementInfo<Graph>>(
+                  start_edge, end_edge, path));
+                  */
+                  break;
+                  //mobile_elements_.back()->mobile_element_edges.push_back(edge);
+
+                }
+                //mobile_elements_.back()->mobile_element_edges.push_back(edge);
+
+              //else {
+
+              //}
+            }
+            new_mobile_element = true;
+          }
+      }
+
+
+    DECL_LOGGER("MobileElementDeletionChecker");
 };
 
 
@@ -295,21 +460,21 @@ class ReferenceCorrector {
       }
 
       void Process(const Sequence& sequence) const {
-        using namespace omnigraph::visualization;
+          using namespace omnigraph::visualization;
           INFO("in LoadReference");
           MappingPath<EdgeId> path = mapper_.MapSequence(sequence);
           INFO("Sequence mapped on " << path.size() << " fragments.");
-              //FIX: nxt call to WriteComponentsAlongPath is temp
-              /*LengthIdGraphLabeler<Graph> basic_labeler(gp.g);
-              EdgePosGraphLabeler<Graph> pos_labeler(gp.g, gp.edge_pos);
-              string file_name =  "reference_correction\\fragment_.dot";
-              INFO("gp.index " << gp.index.IsAttached());
-  CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
-              omnigraph::visualization::WriteComponentsAlongPath(gp.g, path.path(),
-                  "reference_correction",
-                  omnigraph::visualization::DefaultColorer(gp.g), labeler);
-                  INFO("OK");
-                  */
+          //FIX: nxt call to WriteComponentsAlongPath is temp
+          /*LengthIdGraphLabeler<Graph> basic_labeler(gp.g);
+          EdgePosGraphLabeler<Graph> pos_labeler(gp.g, gp.edge_pos);
+          string file_name =  "reference_correction\\fragment_.dot";
+          INFO("gp.index " << gp.index.IsAttached());
+          CompositeLabeler<Graph> labeler(basic_labeler, pos_labeler);
+          omnigraph::visualization::WriteComponentsAlongPath(gp.g, path.path(),
+              "reference_correction",
+              omnigraph::visualization::DefaultColorer(gp.g), labeler);
+              INFO("OK");
+              */
           for (size_t i = 0; i < path.size(); i++) {
               for (auto iter = checkers_.begin(); iter != checkers_.end(); ++ iter) {
                   (*iter)->Check(path, i);
